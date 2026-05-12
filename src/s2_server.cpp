@@ -2,7 +2,10 @@
 #include "../third_party/json.hpp"
 // #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "../include/s2_server.h"
+#include <algorithm>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 
 // httplib::SSLServer svr;
 
@@ -122,6 +125,13 @@ namespace s2
                             pipelineParams.gen.n_threads = std::max(1, val);
                         }
 
+                        if (j.contains("seed")) {
+                            uint64_t val = j["seed"].get<uint64_t>();
+                            pipelineParams.gen.seed = static_cast<uint32_t>(
+                                val & std::numeric_limits<uint32_t>::max());
+                            pipelineParams.gen.use_seed = true;
+                        }
+
                         if (j.contains("verbose")) {
                             bool val = j["verbose"].get<bool>();
                             pipelineParams.gen.verbose = val;
@@ -129,6 +139,12 @@ namespace s2
                     }
                     catch (const json::parse_error& e) {
                         json err = { {"error", "JSON parse error"} };
+                        res.set_content(err.dump(), "application/json");
+                        res.status = 400;
+                        return;
+                    }
+                    catch (const json::exception& e) {
+                        json err = { {"error", "Invalid generation params"} };
                         res.set_content(err.dump(), "application/json");
                         res.status = 400;
                         return;
