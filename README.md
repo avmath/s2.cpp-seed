@@ -203,6 +203,7 @@ cmake --build build --parallel $(nproc)
 | `-temp F` | `0.8` | Sampling temperature |
 | `-top-p F` | `0.8` | Top-p nucleus sampling |
 | `-top-k N` | `30` | Top-k sampling |
+| `-seed N`, `--seed N` | random | Fixed sampling seed for reproducible generation |
 | `--dynamic-normalize` / `--no-dynamic-normalize` | `disabled` | Enable or disable dynamic RMS normalization |
 | `--trim-silence` / `--no-trim-silence` | `trim` disabled | Enable or disable trailing silence trimming on the saved WAV |
 | `--normalize` / `--no-normalize` | `normalize` disabled | Enable or disable peak normalization to `0.95` on the saved WAV |
@@ -231,7 +232,7 @@ Start the server:
 | `text` | string | yes | Text to synthesize |
 | `reference` | file | no | Reference audio file for voice cloning (WAV or MP3). Aliases: `reference_audio`, `prompt_audio`, `ref_audio` |
 | `reference_text` | string | if reference audio is provided | Transcript of the reference audio. Aliases: `ref_text`, `prompt_text` |
-| `params` | JSON string | no | Generation params: `max_new_tokens`, `temperature`, `top_p`, `top_k`, `min_tokens_before_end`, `n_threads`, `verbose` |
+| `params` | JSON string | no | Generation params: `max_new_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `min_tokens_before_end`, `n_threads`, `verbose` |
 
 Returns `audio/wav`.
 
@@ -239,7 +240,7 @@ Returns `audio/wav`.
 # Basic
 curl -X POST http://127.0.0.1:3030/generate \
   --form "text=Hello world" \
-  --form 'params={"max_new_tokens":512,"temperature":0.58,"top_p":0.88,"top_k":40}' \
+  --form 'params={"max_new_tokens":512,"temperature":0.58,"top_p":0.88,"top_k":40,"seed":42}' \
   -o output.wav
 
 # With voice cloning

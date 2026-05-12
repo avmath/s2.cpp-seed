@@ -4,6 +4,7 @@
 // Pure C++ port of the numpy sampler from ggml_pure.py.
 
 #include <cstdint>
+#include <random>
 #include <vector>
 
 namespace s2 {
@@ -17,7 +18,8 @@ struct SamplerParams {
 // Sample a single token from logits using top-k + top-p + temperature.
 // Matches fish-speech sampling order: top-k/top-p are computed on raw logits,
 // then temperature is applied only after truncation.
-int32_t sample_token(const float * logits, int32_t vocab_size, const SamplerParams & params);
+int32_t sample_token(const float * logits, int32_t vocab_size, const SamplerParams & params,
+                     std::mt19937 * rng = nullptr);
 
 // Repetition Aware Sampling (RAS):
 // Tracks a window of recent tokens, resamples with high temp if repeating.
@@ -30,7 +32,8 @@ public:
     // Sample with RAS check. sem_begin/sem_end define the semantic token range.
     int32_t sample(const float * logits, int32_t vocab_size,
                    const SamplerParams & params,
-                   int32_t sem_begin, int32_t sem_end);
+                   int32_t sem_begin, int32_t sem_end,
+                   std::mt19937 * rng = nullptr);
 
     void reset();
 

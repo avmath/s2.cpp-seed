@@ -1,7 +1,6 @@
 #include "../include/s2_sampler.h"
 #include <cmath>
 #include <algorithm>
-#include <random>
 
 namespace s2 {
 
@@ -39,7 +38,8 @@ static std::vector<float> softmax_from_sorted_logits(const std::vector<std::pair
     return probs;
 }
 
-int32_t sample_token(const float * logits, int32_t vocab_size, const SamplerParams & params) {
+int32_t sample_token(const float * logits, int32_t vocab_size, const SamplerParams & params,
+                     std::mt19937 * rng) {
     if (vocab_size <= 0) return 0;
 
     std::vector<std::pair<float, int32_t>> items;
@@ -49,6 +49,7 @@ int32_t sample_token(const float * logits, int32_t vocab_size, const SamplerPara
     }
 
     std::sort(items.begin(), items.end(), [](const auto & a, const auto & b) {
+        if (a.first == b.first) return a.second < b.second;
         return a.first > b.first;
     });
 
@@ -91,7 +92,8 @@ int32_t sample_token(const float * logits, int32_t vocab_size, const SamplerPara
     }
     for (float & p : probs) p /= sum_p;
 
-    thread_local static std::mt19937 gen(std::random_device{}());
+    thread_local static std::mt19937 default_rng(std::random_device{}());
+    std::mt19937 & gen = rng ? *rng : default_rng;
     std::discrete_distribution<int32_t> dist(probs.begin(), probs.end());
 
     const int32_t sampled_idx = dist(gen);
@@ -105,16 +107,17 @@ RASSampler::RASSampler(int32_t window_size, float high_temp, float high_top_p)
 
 int32_t RASSampler::sample(const float * logits, int32_t vocab_size,
                const SamplerParams & params,
-               int32_t sem_begin, int32_t sem_end) {
+               int32_t sem_begin, int32_t sem_end,
+               std::mt19937 * rng) {
     
-    int32_t token = sample_token(logits, vocab_size, params);
+    int32_t token = sample_token(logits, vocab_size, params, rng);
     
     if (!window_.empty() && token >= sem_begin && token < sem_end) {
         if (std::find(window_.begin(), window_.end(), token) != window_.end()) {
             SamplerParams high_params = params;
             high_params.temperature = high_temp_;
             high_params.top_p = high_top_p_;
-            token = sample_token(logits, vocab_size, high_params);
+            token = sample_token(logits, vocab_size, high_params, rng);
         }
     }
     

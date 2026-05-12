@@ -4,6 +4,7 @@
 #include <limits>
 #include <algorithm>
 #include <cmath>
+#include <random>
 
 namespace s2 {
 
@@ -23,6 +24,13 @@ GenerateResult generate(
     const int32_t codebook_size = model.hparams().codebook_size;
     const int32_t im_end_id    = config.im_end_id;
     const int32_t num_cb       = out.num_codebooks;
+
+    std::mt19937 seeded_rng;
+    std::mt19937 * rng = nullptr;
+    if (params.use_seed) {
+        seeded_rng.seed(params.seed);
+        rng = &seeded_rng;
+    }
 
     // Build semantic mask: -inf everywhere except [sem_begin, sem_end] and im_end
     std::vector<float> sem_mask(vocab_size, -std::numeric_limits<float>::infinity());
@@ -69,7 +77,7 @@ GenerateResult generate(
         sparams.temperature     = params.temperature;
         sparams.top_p           = params.top_p;
         sparams.top_k           = params.top_k;
-        return sample_token(biased.data(), vocab_size, sparams);
+        return sample_token(biased.data(), vocab_size, sparams, rng);
     };
 
     // Sample first main_token
@@ -116,7 +124,7 @@ GenerateResult generate(
             ras_sparams.temperature = ras_high_temp;
             ras_sparams.top_p       = ras_high_top_p;
             ras_sparams.top_k       = params.top_k;
-            main_token = sample_token(biased.data(), vocab_size, ras_sparams);
+            main_token = sample_token(biased.data(), vocab_size, ras_sparams, rng);
         }
 
         // Update RAS window
@@ -147,7 +155,7 @@ GenerateResult generate(
                 }
                 break;
             }
-            int32_t cb_token = sample_token(fast_logits.data(), (int32_t)fast_logits.size(), sparams);
+            int32_t cb_token = sample_token(fast_logits.data(), (int32_t)fast_logits.size(), sparams, rng);
             codebooks_cb.push_back(cb_token);
         }
 
