@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <mutex>
+#include <vector>
 
 namespace s2 {
 
@@ -25,6 +26,8 @@ struct PipelineParams {
     bool trim_silence = false;
     bool normalize_output = false;
     bool normalize_dynamic = false;
+    bool permanent_prompt = false;
+    std::string prompt_audio_cache_key;
 };
 
 class Pipeline {
@@ -43,6 +46,17 @@ public:
     SlowARModel model_;
     AudioCodec  codec_;
     mutable std::mutex synthesize_mutex_;
+    mutable std::mutex permanent_prompt_cache_mutex_;
+
+    struct PermanentPromptCache {
+        bool valid = false;
+        std::string audio_key;
+        std::string prompt_text;
+        std::vector<int32_t> ref_codes;
+        int32_t t_prompt = 0;
+    };
+
+    PermanentPromptCache permanent_prompt_cache_;
     bool initialized_ = false;
 };
 

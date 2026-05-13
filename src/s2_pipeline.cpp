@@ -1,6 +1,8 @@
 #include "../include/s2_pipeline.h"
 #include <cstdio>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 
 namespace s2 {
 
@@ -12,6 +14,30 @@ static void safe_print_ln(const std::string& msg) {
 static void safe_print_error_ln(const std::string& msg) {
     fputs(msg.c_str(), stderr);
     fputc('\n', stderr);
+}
+
+
+static std::string make_memory_audio_cache_key(const void* data, size_t size) {
+    const unsigned char* bytes = static_cast<const unsigned char*>(data);
+    uint64_t hash = 1469598103934665603ull;
+    for (size_t i = 0; i < size; ++i) {
+        hash ^= static_cast<uint64_t>(bytes[i]);
+        hash *= 1099511628211ull;
+    }
+
+    std::ostringstream os;
+    os << "memory:" << size << ':' << std::hex << std::setw(16) << std::setfill('0') << hash;
+    return os.str();
+}
+
+static bool cache_matches(const Pipeline::PermanentPromptCache& cache,
+                          const std::string& audio_key,
+                          const std::string& prompt_text) {
+    return cache.valid &&
+           cache.audio_key == audio_key &&
+           cache.prompt_text == prompt_text &&
+           cache.t_prompt > 0 &&
+           !cache.ref_codes.empty();
 }
 
 Pipeline::Pipeline() {}
@@ -58,14 +84,28 @@ bool Pipeline::synthesize(const PipelineParams & params) {
         return false;
     }
 
-    if (!params.prompt_audio_path.empty()) {
-        safe_print_ln("Loading reference audio: " + params.prompt_audio_path);
-        if (!load_audio(params.prompt_audio_path, ref_audio, codec_.sample_rate())) {
-            safe_print_error_ln("Pipeline warning: load_audio failed, running without reference audio.");
+    PipelineParams effective_params = params;
+    if (effective_params.prompt_audio_cache_key.empty() && !effective_params.prompt_audio_path.empty()) {
+        effective_params.prompt_audio_cache_key = "path:" + effective_params.prompt_audio_path;
+    }
+
+    if (!effective_params.prompt_audio_path.empty()) {
+        bool use_cached_prompt = false;
+        if (effective_params.permanent_prompt) {
+            std::lock_guard<std::mutex> cache_lock(permanent_prompt_cache_mutex_);
+            use_cached_prompt = cache_matches(permanent_prompt_cache_, effective_params.prompt_audio_cache_key, effective_params.prompt_text);
+        }
+        if (use_cached_prompt) {
+            safe_print_ln("Using cached permanent reference audio: " + effective_params.prompt_audio_path);
+        } else {
+            safe_print_ln("Loading reference audio: " + effective_params.prompt_audio_path);
+            if (!load_audio(effective_params.prompt_audio_path, ref_audio, codec_.sample_rate())) {
+                safe_print_error_ln("Pipeline warning: load_audio failed, running without reference audio.");
+            }
         }
     }
     int32_t AudioOutFrames = 0;
-    if (!this->synthesize_raw(params, ref_audio, audio_out, &AudioOutFrames)) {
+    if (!this->synthesize_raw(effective_params, ref_audio, audio_out, &AudioOutFrames)) {
         safe_print_error_ln("Pipeline error: synthesis failed.");
         return false;
     }
@@ -98,15 +138,30 @@ bool Pipeline::synthesize_to_memory(const PipelineParams & params, void** ref_au
         return false;
     }
 
+    PipelineParams effective_params = params;
+    if (ref_audio_buffer && ref_audio_size && *ref_audio_buffer && *ref_audio_size > 0 &&
+        effective_params.prompt_audio_cache_key.empty()) {
+        effective_params.prompt_audio_cache_key = make_memory_audio_cache_key(*ref_audio_buffer, *ref_audio_size);
+    }
+
     if (ref_audio_buffer && ref_audio_size && *ref_audio_buffer && *ref_audio_size > 0) {
-        safe_print_ln("Loading reference audio...");
-        if (!load_audio_from_memory(*ref_audio_buffer, *ref_audio_size, ref_audio, codec_.sample_rate())) {
-            safe_print_error_ln("Pipeline warning: load_audio failed, running without reference audio.");
+        bool use_cached_prompt = false;
+        if (effective_params.permanent_prompt) {
+            std::lock_guard<std::mutex> cache_lock(permanent_prompt_cache_mutex_);
+            use_cached_prompt = cache_matches(permanent_prompt_cache_, effective_params.prompt_audio_cache_key, effective_params.prompt_text);
+        }
+        if (use_cached_prompt) {
+            safe_print_ln("Using cached permanent reference audio...");
+        } else {
+            safe_print_ln("Loading reference audio...");
+            if (!load_audio_from_memory(*ref_audio_buffer, *ref_audio_size, ref_audio, codec_.sample_rate())) {
+                safe_print_error_ln("Pipeline warning: load_audio failed, running without reference audio.");
+            }
         }
     }
 
     int32_t AudioOutFrames = 0;
-    if (!this->synthesize_raw(params, ref_audio, audio_out, &AudioOutFrames)) {
+    if (!this->synthesize_raw(effective_params, ref_audio, audio_out, &AudioOutFrames)) {
         safe_print_error_ln("Pipeline error: synthesis failed.");
         return false;
     }
@@ -150,14 +205,48 @@ bool Pipeline::synthesize_raw(const PipelineParams & params, AudioData & ref_aud
 
     std::vector<int32_t> ref_codes;
     int32_t T_prompt = 0;
+    const bool has_prompt_identity = !params.prompt_audio_cache_key.empty() && !params.prompt_text.empty();
+    bool can_use_cache = false;
 
-    if (!ref_audio.samples.empty()) {
+    {
+        std::lock_guard<std::mutex> cache_lock(permanent_prompt_cache_mutex_);
+        can_use_cache = params.permanent_prompt &&
+            cache_matches(permanent_prompt_cache_, params.prompt_audio_cache_key, params.prompt_text);
+
+        if (!params.permanent_prompt) {
+            permanent_prompt_cache_ = PermanentPromptCache{};
+        }
+
+        if (can_use_cache) {
+            ref_codes = permanent_prompt_cache_.ref_codes;
+            T_prompt = permanent_prompt_cache_.t_prompt;
+        }
+    }
+
+    if (can_use_cache) {
+        // Reuse the cached prompt codes below.
+    } else if (!ref_audio.samples.empty()) {
         if (!codec_.encode(ref_audio.samples.data(), (int32_t)ref_audio.samples.size(),
                            params.gen.n_threads, ref_codes, T_prompt)) {
             safe_print_error_ln("Pipeline warning: encode failed, running without reference audio.");
             ref_codes.clear();
             T_prompt = 0;
+            if (params.permanent_prompt) {
+                std::lock_guard<std::mutex> cache_lock(permanent_prompt_cache_mutex_);
+                permanent_prompt_cache_ = PermanentPromptCache{};
+            }
+        } else if (params.permanent_prompt && has_prompt_identity) {
+            std::lock_guard<std::mutex> cache_lock(permanent_prompt_cache_mutex_);
+            permanent_prompt_cache_.valid = true;
+            permanent_prompt_cache_.audio_key = params.prompt_audio_cache_key;
+            permanent_prompt_cache_.prompt_text = params.prompt_text;
+            permanent_prompt_cache_.ref_codes = ref_codes;
+            permanent_prompt_cache_.t_prompt = T_prompt;
+            safe_print_ln("Permanent reference audio cached.");
         }
+    } else if (params.permanent_prompt) {
+        std::lock_guard<std::mutex> cache_lock(permanent_prompt_cache_mutex_);
+        permanent_prompt_cache_ = PermanentPromptCache{};
     }
 
     PromptTensor prompt = build_prompt(
