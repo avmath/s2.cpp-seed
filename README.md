@@ -193,6 +193,7 @@ cmake --build build --parallel $(nproc)
 | `-text` | `"Hello world"` | Text to synthesize |
 | `-pa`, `--prompt-audio` | — | Reference audio file for voice cloning (WAV/MP3) |
 | `-pt`, `--prompt-text` | — | Transcript of the reference audio |
+| `--permanent` | disabled | Cache matching reference audio/text prompt codes in memory and reuse them while the same server process handles subsequent matching requests |
 | `-o`, `--output` | `out.wav` | Output WAV file path |
 | `-v`, `--vulkan` | `-1` (CPU) | Vulkan device index (`-1` = CPU only) |
 | `-c`, `--cuda` | `-1` (CPU) | CUDA device index (`-1` = CPU only) |
@@ -232,7 +233,8 @@ Start the server:
 | `text` | string | yes | Text to synthesize |
 | `reference` | file | no | Reference audio file for voice cloning (WAV or MP3). Aliases: `reference_audio`, `prompt_audio`, `ref_audio` |
 | `reference_text` | string | if reference audio is provided | Transcript of the reference audio. Aliases: `ref_text`, `prompt_text` |
-| `params` | JSON string | no | Generation params: `max_new_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `min_tokens_before_end`, `n_threads`, `verbose` |
+| `permanent` | boolean/string | no | Cache and reuse the analyzed reference audio/text while `reference`, `reference_text`, and `permanent` remain unchanged. Accepted form values: `1`, `true`, `yes`, `on` |
+| `params` | JSON string | no | Generation params: `max_new_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `min_tokens_before_end`, `n_threads`, `verbose`, `permanent` |
 
 Returns `audio/wav`.
 
@@ -257,6 +259,23 @@ curl -X POST http://127.0.0.1:3030/generate \
   --form "ref_text=Transcript of the reference." \
   --form "text=Text to synthesize in that voice." \
   -o output.wav
+
+# Voice cloning with reusable reference analysis
+curl -X POST http://127.0.0.1:3030/generate \
+  --form "text=First phrase" \
+  --form "reference=@voice.wav" \
+  --form "reference_text=Transcript of the reference audio" \
+  --form "permanent=true" \
+  -o first.wav
+
+# Subsequent requests with the same reference, transcript, and permanent=true reuse cached prompt codes.
+curl -X POST http://127.0.0.1:3030/generate \
+  --form "text=Second phrase in the same voice" \
+  --form "reference=@voice.wav" \
+  --form "reference_text=Transcript of the reference audio" \
+  --form "permanent=true" \
+  -o second.wav
+
 ```
 
 ---

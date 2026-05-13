@@ -4,6 +4,7 @@
 #include "../include/s2_server.h"
 #include <algorithm>
 #include <cstdint>
+#include <cctype>
 #include <iostream>
 #include <limits>
 
@@ -33,6 +34,16 @@ namespace s2
             }
         }
         return false;
+    }
+
+
+    static bool parse_bool_field(const std::string& value) {
+        std::string lower;
+        lower.reserve(value.size());
+        for (char c : value) {
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+        return lower == "1" || lower == "true" || lower == "yes" || lower == "on";
     }
 
     Server::Server() {}
@@ -86,6 +97,10 @@ namespace s2
                 }
 
                 pipelineParams.text = req.form.get_field("text");
+                pipelineParams.permanent_prompt = params.pipeline.permanent_prompt;
+                if (req.form.has_field("permanent")) {
+                    pipelineParams.permanent_prompt = parse_bool_field(req.form.get_field("permanent"));
+                }
 
                 pipelineParams.prompt_text = get_first_form_field(
                     req.form, {"reference_text", "ref_text", "prompt_text"});
@@ -135,6 +150,10 @@ namespace s2
                         if (j.contains("verbose")) {
                             bool val = j["verbose"].get<bool>();
                             pipelineParams.gen.verbose = val;
+                        }
+
+                        if (j.contains("permanent")) {
+                            pipelineParams.permanent_prompt = j["permanent"].get<bool>();
                         }
                     }
                     catch (const json::parse_error& e) {

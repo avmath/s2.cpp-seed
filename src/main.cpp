@@ -33,6 +33,7 @@ void print_uso() {
     safe_print("  -text              <text>   Text to synthesize\n");
     safe_print("  -pa, --prompt-audio <path>  Path to reference audio for cloning\n");
     safe_print("  -pt, --prompt-text <text>   Text of the reference audio\n");
+    safe_print("  --permanent                Cache matching reference audio/text codes for reuse\n");
     safe_print("  -o, --output       <path>   Output WAV path\n");
     safe_print("  -v, --vulkan <id>               Vulkan device index\n");
     safe_print("  -c, --cuda   <id>               CUDA device index\n");
@@ -114,6 +115,7 @@ int main(int argc, char** argv) {
         else if (arg == "-text")                          { if (i+1 < argc) params.text               = argv[++i]; }
         else if (arg == "-pa" || arg == "--prompt-audio") { if (i+1 < argc) params.prompt_audio_path = argv[++i]; }
         else if (arg == "-pt" || arg == "--prompt-text")  { if (i+1 < argc) params.prompt_text        = argv[++i]; }
+        else if (arg == "--permanent")                    { params.permanent_prompt = true; }
         else if (arg == "-o"  || arg == "--output")       { if (i+1 < argc) params.output_path        = argv[++i]; }
         else if (arg == "-v"  || arg == "--vulkan")       { if (i+1 < argc) { try { params.gpu_device = std::stoi(argv[++i]); } catch(...) {} params.backend_type = 0; } }
         else if (arg == "-c"  || arg == "--cuda")         { if (i+1 < argc) { try { params.gpu_device = std::stoi(argv[++i]); } catch(...) {} params.backend_type = 1; } }
